@@ -394,6 +394,29 @@
         .login-action-btn.wl .lab-ic { background:#fef9c3; }
         .login-action-btn.att .lab-ic { background:#dbeafe; }
 
+        /* ===== POPUP OPEN ANIMATIONS (login-screen buttons: Seat Availability, Feedback,
+           Policies & Terms, Waiting List, Mark Attendance) =====
+           These overlays are shown by flipping display:none -> flex, which used to make them
+           appear instantly. A CSS animation restarts every time the element becomes visible,
+           so the backdrop now fades in and the card springs up smoothly on every open. */
+        @keyframes sam-overlay-in { from { opacity:0; } to { opacity:1; } }
+        @keyframes sam-card-pop { 0% { opacity:0; transform:translateY(28px) scale(.93); } 60% { opacity:1; transform:translateY(-3px) scale(1.01); } 100% { opacity:1; transform:none; } }
+        #check-seat-availability-modal, #wl-status-overlay, #mark-att-overlay,
+        #public-feedback-modal, #app-feedback-modal, .sampol-overlay.sampol-open {
+            animation: sam-overlay-in .25s ease-out both;
+        }
+        #check-seat-availability-modal > div, #wl-status-overlay > div, #mark-att-overlay > div,
+        #public-feedback-modal > .modal-content, #app-feedback-modal > .modal-content,
+        .sampol-overlay.sampol-open > .sampol-card {
+            animation: sam-card-pop .42s cubic-bezier(.22,1,.36,1) both;
+        }
+        .login-action-btn { transition: transform .18s ease, box-shadow .18s ease, background .18s ease, border-color .18s ease; }
+        @media (prefers-reduced-motion: reduce) {
+            #check-seat-availability-modal, #wl-status-overlay, #mark-att-overlay, #public-feedback-modal, #app-feedback-modal,
+            #check-seat-availability-modal > div, #wl-status-overlay > div, #mark-att-overlay > div,
+            #public-feedback-modal > .modal-content, #app-feedback-modal > .modal-content { animation: none; }
+        }
+
 
 
         .wallet-epoch-divider { display:flex; align-items:center; gap:8px; margin:10px 0; color:#6366f1; font-size:0.68rem; font-weight:800; text-align:center; }
@@ -12442,10 +12465,26 @@ function openWalletEkycCooldownModal() {
     function walletToggleAutoRenew() {
         if (!wallet) return;
         wallet.subscription = wallet.subscription || { planId: null, planName: null, durationDays: null, startDate: null, nextRenewalDate: null, autoRenew: false, history: [] };
-        wallet.subscription.autoRenew = !wallet.subscription.autoRenew;
-        persistWalletOnly();
-        if (wallet.subscription.autoRenew) autoRenewCheckAndProcess();
+        // Turning Auto-Renew ON or OFF both need the U-PIN (or biometric if enabled), since
+        // it decides whether the wallet is charged without any further approval.
+        const turningOn = !wallet.subscription.autoRenew;
+        // The switch has already flipped on screen; re-render now so it snaps back to its real
+        // state if the Admin cancels the verification prompt.
         refreshAllWalletDisplays();
+        requireWalletUnlock({
+            title: turningOn ? '🔐 Enable Auto-Renew' : '🔐 Disable Auto-Renew',
+            desc: turningOn
+                ? 'Verify it\'s you to turn ON Auto-Renew. Your wallet will then be charged automatically for every subscription renewal.'
+                : 'Verify it\'s you to turn OFF Auto-Renew. Renewals will then need your manual approval each time.'
+        }, () => {
+            // requireWalletUnlock() reloads `wallet` from storage, so always work on the live one.
+            wallet.subscription = wallet.subscription || { planId: null, planName: null, durationDays: null, startDate: null, nextRenewalDate: null, autoRenew: false, history: [] };
+            wallet.subscription.autoRenew = turningOn;
+            persistWalletOnly();
+            if (turningOn) autoRenewCheckAndProcess();
+            refreshAllWalletDisplays();
+            if (typeof updateAdminMenuNotifDots === 'function') updateAdminMenuNotifDots();
+        });
     }
     // Runs on every wallet refresh (dashboard load, cross-tab storage sync, wallet modal open).
     // If Auto-Renew is ON, silently accepts any Pending plan-based renewal request that's sitting
