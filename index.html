@@ -2742,15 +2742,11 @@
 
             <div class="wallet-history-tabs" style="display:flex; gap:6px; margin:14px 0 12px; border-bottom:1px solid var(--border);">
                 <button type="button" class="wallet-history-tab-btn active" id="admin-wallet-htab-txns" onclick="switchAdminWalletHistoryTab('txns')">📜 Transaction History</button>
-                <button type="button" class="wallet-history-tab-btn" id="admin-wallet-htab-charges" onclick="switchAdminWalletHistoryTab('charges')">🧾 Past Charge Requests<span class="admin-menu-notif-dot" id="admin-wallet-charges-tab-notif-dot" style="display:none;"></span></button>
                 <button type="button" class="wallet-history-tab-btn" id="admin-wallet-htab-lock" onclick="switchAdminWalletHistoryTab('lock')">🔒 Activate/Deactivate/Closure/eKYC Log</button>
             </div>
 
             <div id="admin-wallet-htab-panel-txns" class="wallet-history-tab-panel">
                 <div id="admin-wallet-tx-list" style="max-height:300px; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; touch-action:pan-y; scroll-behavior:smooth; border:1px solid var(--border); border-radius:12px; padding:8px;"></div>
-            </div>
-            <div id="admin-wallet-htab-panel-charges" class="wallet-history-tab-panel" style="display:none;">
-                <div id="admin-wallet-charge-requests"></div>
             </div>
             <div id="admin-wallet-htab-panel-lock" class="wallet-history-tab-panel" style="display:none;">
                 <div id="admin-wallet-ekyc-sheet-info" style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:9px 12px; margin-bottom:10px; font-size:0.74rem; color:var(--grey);"></div>
@@ -2774,7 +2770,8 @@
         </div>
         <div class="wallet-body">
             <div id="admin-subscription-card"></div>
-            <p style="font-size:0.78rem; color:var(--grey); text-align:center; margin:10px 2px 0;">Renewal charge requests appear under 🧾 Past Charge Requests in your Wallet.</p>
+            <div class="wallet-section-label">🧾 Renewal Charge Requests</div>
+            <div id="admin-subscription-charge-requests"></div>
         </div>
     </div>
 </div>
@@ -10472,11 +10469,7 @@
             return;
         }
         requireWalletUnlock({ title: '🔐 Unlock Wallet', desc: 'Verify it\'s you before opening the Admin Wallet.' }, () => {
-            // If a Super Admin renewal charge is waiting for a decision, jump straight to that
-            // tab instead of always defaulting to Transaction History — otherwise the request
-            // sits unnoticed behind a tab the Admin has no particular reason to click on.
-            const hasPendingCharge = ((wallet.chargeRequests || []).some(r => r.status === 'Pending'));
-            switchAdminWalletHistoryTab(hasPendingCharge ? 'charges' : 'txns');
+            switchAdminWalletHistoryTab('txns');
             renderAdminWalletModal();
             document.getElementById('admin-wallet-modal').classList.add('modal-open');
         });
@@ -12321,16 +12314,10 @@ function openWalletEkycCooldownModal() {
     }
 
     function renderAdminWalletChargeRequests() {
-        const host = document.getElementById('admin-wallet-charge-requests');
+        const host = document.getElementById('admin-subscription-charge-requests');
         if (!host || !wallet) return;
         const reqs = (wallet.chargeRequests || []).slice().reverse();
         const pending = reqs.find(r => r.status === 'Pending');
-        // Light up a dot right on the "Past Charge Requests" tab itself — without this, a new
-        // request from the Super Admin sits invisibly under a tab that isn't even selected by
-        // default (the wallet modal opens on Transaction History), so the Admin has no way to
-        // know one is waiting unless they happen to click over and check.
-        const tabDot = document.getElementById('admin-wallet-charges-tab-notif-dot');
-        if (tabDot) tabDot.style.display = pending ? 'inline-block' : 'none';
         let html = '';
         if (pending) {
             const autoOn = !!(wallet.subscription && wallet.subscription.autoRenew);
@@ -12350,25 +12337,19 @@ function openWalletEkycCooldownModal() {
             '</div>';
         }
         const past = reqs.filter(r => r.status !== 'Pending');
-        const directCharges = (wallet.transactions || []).filter(t => t.isSuperAdminCharge);
-        const CHARGE_ICONS = { maintenance: '🔧', penalty: '⚠️', renewal: '🔄' };
-        const CHARGE_LABELS = { maintenance: 'Annual Maintenance Charge', penalty: 'Penalty', renewal: 'Subscription Renewal Charge' };
-        const pastCombined = past.map(rq => ({ date: rq.decidedAt || rq.requestedAt, amount: rq.amount, type: 'renewal', status: rq.status, decisionReason: rq.decisionReason, note: rq.note, planName: rq.planName }))
-            .concat(directCharges.map(t => ({ date: t.date, amount: t.amount, type: t.chargeType, status: 'Deducted', decisionReason: null, note: t.note })))
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-        if (pastCombined.length) {
+        if (past.length) {
             html += '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:14px;padding:4px 10px;">' +
-                walletWithEpochDividers(pastCombined, rq => {
+                walletWithEpochDividers(past.map(rq => Object.assign({}, rq, { date: rq.decidedAt || rq.requestedAt })), rq => {
                     const badgeClass = rq.status === 'Rejected' ? 'bad' : (rq.status === 'Superseded' ? 'neutral' : 'good');
                     const statusHtml = rq.status === 'Approved' ? '<span style="color:#16a34a;">✅ Approved &amp; Deducted</span>'
                         : rq.status === 'Rejected' ? '<span style="color:#dc2626;">❌ Rejected</span>'
                         : rq.status === 'Superseded' ? '<span style="color:#64748b;">↩️ Replaced by a newer request from Super Admin</span>'
                         : '<span style="color:#16a34a;">✅ Deducted</span>';
                     return '<div class="wallet-history-row">' +
-                        '<div class="badge ' + badgeClass + '">' + (CHARGE_ICONS[rq.type] || '🧾') + '</div>' +
+                        '<div class="badge ' + badgeClass + '">🔄</div>' +
                         '<div class="content">' +
-                            '<div class="title-line"><span class="name">' + (CHARGE_LABELS[rq.type] || 'Charge') + (rq.type === 'renewal' && rq.planName ? ' — ' + rq.planName : '') + '</span><span class="amt" style="color:#dc2626;">-₹' + rq.amount + '</span></div>' +
-                            '<div class="sub-line">' + fmtWalletDate(rq.date) + (rq.note ? ' • ' + rq.note : '') + '</div>' +
+                            '<div class="title-line"><span class="name">Subscription Renewal Charge' + (rq.planName ? ' — ' + rq.planName : '') + '</span><span class="amt" style="color:#dc2626;">-₹' + rq.amount + '</span></div>' +
+                            '<div class="sub-line">' + fmtWalletDate(rq.decidedAt || rq.requestedAt) + (rq.note ? ' • ' + rq.note : '') + '</div>' +
                             '<div class="status-line">' + statusHtml + '</div>' +
                             (rq.status === 'Rejected' && rq.decisionReason ? '<div class="reason-line">Reason: ' + rq.decisionReason + '</div>' : '') +
                         '</div>' +
@@ -12376,8 +12357,8 @@ function openWalletEkycCooldownModal() {
                 }) +
                 '</div>';
         }
-        if (!pending && !pastCombined.length) {
-            html = '<div class="wallet-history-empty">🧾 No maintenance, penalty, or renewal charge requests yet.</div>';
+        if (!pending && !past.length) {
+            html = '<div class="wallet-history-empty">🧾 No renewal charge requests yet.</div>';
         }
         host.innerHTML = html;
     }
@@ -12500,7 +12481,7 @@ function openWalletEkycCooldownModal() {
     }
 
     function switchAdminWalletHistoryTab(tab) {
-        ['charges', 'txns', 'lock'].forEach(t => {
+        ['txns', 'lock'].forEach(t => {
             const btn = document.getElementById('admin-wallet-htab-' + t);
             const panel = document.getElementById('admin-wallet-htab-panel-' + t);
             if (btn) btn.classList.toggle('active', t === tab);
